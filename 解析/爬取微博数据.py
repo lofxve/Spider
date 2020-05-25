@@ -1,11 +1,4 @@
 from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.wait import WebDriverWait
-from urllib.parse import quote
-from pyquery import PyQuery as pq
 from pyecharts.charts import PictorialBar
 from pyecharts.charts import Line
 from opdata.opexcel import Operatingexcel
@@ -13,13 +6,10 @@ from bs4 import BeautifulSoup
 import time
 import Draw as draw
 import re
-import xlrd
-import jieba
-from pyecharts.charts import WordCloud
-from snownlp import SnowNLP
 from pyecharts import options as opts
 from collections import Counter
 import jieba.posseg as psg
+from snownlp import SnowNLP
 # browser = webdriver.Chrome()
 # #给定登陆的网址
 # url = 'https://passport.weibo.cn/signin/login'
@@ -179,18 +169,40 @@ def writetxt(jjrw, result):
                 s = str(result[i]).strip().replace("emoji", "").replace("span", "").replace("class", "").replace("#","").replace("http","")
                 rec = re.compile("1f\d+\w*|[<>/=]|\r|\n|")
                 s = rec.sub("", s)
-                r.write(s)
-# 读取文件并进行分词排序
-def readjieba(jjr):
-    with open(jjr, "r",encoding="utf-8") as f:
-        text = f.read()
-    seg_list = psg.cut(text)
-    seg_list1 = ["{0}".format(w) for w, t in seg_list if len(w) != 1 and t!='m']
+                r.write(s+"\n")
+def count(seg_list1):
     # 计数
     count = Counter(seg_list1)
     # 字典排序
     result = sorted(count.items(), key=lambda x: x[1], reverse=True)
     return result
+# 读取文件并进行分词排序
+def readjieba(text,excludes,list_replace):
+    dic_result = {}
+    seg_list1 = []
+    nr=[]
+    ns=[]
+    # 分词
+    seg_list = psg.cut(text)
+    for w, t in seg_list:
+        # 去除停用词
+        if len(w) != 1 and t != 'm' and w not in excludes:
+            # 替换词
+            for j in list_replace:
+                if w == j[0]:
+                    real_word == j[1]
+                else:
+                    real_word = w
+            if t == 'nr':
+                nr.append("{0}".format(real_word))
+            if t=='ns':
+                ns.append("{0}".format(real_word))
+            seg_list1.append("{0}".format(real_word))
+
+    dic_result.setdefault("全部", count(seg_list1))
+    dic_result.setdefault("人名", count(nr))
+    dic_result.setdefault("地名", count(ns))
+    return dic_result
 # 趋势图
 def drawline(arrt,value,value1,value2,name):
 
@@ -252,6 +264,25 @@ def drawPictorialBar(location,values,name):
         )
         .render("{0}.html".format(name))
     )
+def read_snowNLP(filename):
+    snow_list = []
+    a=0
+    b=0
+    c=0
+    with open(filename, "r", encoding='utf-8') as f:
+        for line in f.readlines():
+            if line != "":
+                s = SnowNLP(line)
+                if s.sentiments > 0.5:
+                    snow_list.append("{0}——褒义".format(line))
+                    a+=1
+                elif s.sentiments < 0.5:
+                    snow_list.append("{0}——贬义".format(line))
+                    b += 1
+                else:
+                    snow_list.append("{0}——中性".format(line))
+                    c+=1
+    return snow_list,a,b,c
 if __name__ == '__main__':
     # 登录
     # login()
@@ -265,29 +296,53 @@ if __name__ == '__main__':
     # print(dics)
 
     """绘制饼图"""
-    yuanchuang = dict()
-    for f in dics["原创"]:
-        if f == '1':
-            yuanchuang["原创"] = yuanchuang.get("原创", 0) + 1
-        elif f == '0':
-            yuanchuang["非原创"] = yuanchuang.get("非原创", 0) + 1
-    attr = ['原创', '非原创']
-    value = [yuanchuang["原创"], yuanchuang["非原创"]]
-    draw.drawpie(attr,value,"data/原创和非原创饼图")
+    # yuanchuang = dict()
+    # for f in dics["原创"]:
+    #     if f == '1':
+    #         yuanchuang["原创"] = yuanchuang.get("原创", 0) + 1
+    #     elif f == '0':
+    #         yuanchuang["非原创"] = yuanchuang.get("非原创", 0) + 1
+    # attr = ['原创', '非原创']
+    # value = [yuanchuang["原创"], yuanchuang["非原创"]]
+    # draw.drawpie(attr,value,"data/原创和非原创饼图")
 
     """绘制词云"""
+    excludes = {'将军', '却说', '令人', '赶来', '徐州', '不见', '下马', '喊声', '因此', '未知', '大败', '百姓', '大事', '一军', '之后', '接应', '起兵',
+                '成都', '原来', '江东', '正是', '忽然', '原来', '大叫', '上马', '天子', '一面', '太守', '不如', '忽报', '后人', '背后', '先主', '此人',
+                '城中', '然后', '大军', '何不', '先生', '何故', '夫人', '不如', '先锋', '二人', '不可', '如何', '荆州', '不能', '如此', '主公', '军士',
+                '商议', '引兵', '次日', '大喜', '魏兵', '军马', '于是', '东吴', '今日', '左右', '天下', '不敢', '陛下', '人马', '不知', '都督', '汉中',
+                '一人', '众将', '后主', '只见', '蜀兵', '马军', '黄巾', '立功', '白发', '大吉', '红旗', '士卒', '钱粮', '于汉', '郎舅', '龙凤', '古之',
+                '白虎', '古人云', '尔乃', '马飞报', '轩昂', '史官', '侍臣', '列阵', '玉玺', '车驾', '老夫', '伏兵', '都尉', '侍中', '西凉', '安民', '张曰',
+                '文武',
+                '白旗',
+                '祖宗', '寻思','英雄','赞美','乳牙'}  # 排除的词汇
+    key = "玄德曰"
+    value = "刘备"
+    list_replace = []
+    list_replace.append(tuple((key, value)))
     writetxt("内容.txt", dics["内容"])
-    words = readjieba("内容.txt")
-    draw.drawWordCloud(words, "data/微博内容词云")
-
+    with open('内容.txt', 'r', encoding='utf-8') as f:
+        text = f.read()
+    dic_result = readjieba(text,excludes,list_replace)
+    draw.drawWordCloud(dic_result["全部"], "data/微博内容词云")
+    draw.drawWordCloud(dic_result["地名"], "data/微博地点词云")
+    draw.drawWordCloud(dic_result["人名"], "data/微博人名词云")
     """绘制折线图"""
-    arrt = [x for x in range(len(dics["评论"]))]
-    drawline(arrt, dics["点赞"], dics["评论"], dics["转发"], "data/折线图")
+    # arrt = [x for x in range(len(dics["评论"]))]
+    # drawline(arrt, dics["点赞"], dics["评论"], dics["转发"], "data/折线图")
 
     """点赞象形图"""
-    drawPictorialBar(arrt,dics["评论"], "data/点赞象形图")
+    # drawPictorialBar(arrt,dics["评论"], "data/点赞象形图")
 
     """评论涟漪图"""
-    draw.drawEffectScatter(arrt, dics["评论"],"data/评论涟漪图")
+    # draw.drawEffectScatter(arrt, dics["评论"],"data/评论涟漪图")
     """转发柱状图"""
-    draw.drawbar(arrt, dics["转发"], "data/转发柱状图")
+    # draw.drawbar(arrt, dics["转发"], "data/转发柱状图")
+    """微博情感极性"""
+    snow_list,a,b,c = read_snowNLP("内容.txt")
+    # 保存到txt文件中
+    writetxt("data/微博情感极性.txt", snow_list)
+    """绘制饼状图"""
+    attr = ['积极', '消极',"中性"]
+    value = [a, b,c]
+    draw.drawpie(attr,value,"data/情感积极性饼图")
